@@ -46,20 +46,39 @@ GitHub Actions runs these checks on every pull request targeting `main`, pushes 
 - `node-chat-bot / build` — `npm run build`
 
 Type generation supplies Next.js route helpers such as `LayoutProps` on a clean
-checkout. There is no test script yet. CI does not call the Anthropic API and
-needs no API key or repository secrets. The build downloads Google Fonts, so it
-needs network access to Google Fonts. These are CI checks, not AI code review.
+checkout. There is no test script yet. The build downloads Google Fonts, so it
+needs network access to Google Fonts.
 
-**Branch protection is not enabled by this workflow; repository settings remain
-manual.** To prevent direct pushes (including by administrators):
+### Results comment
 
-1. Go to **Settings > Branches > Add branch protection rule** and target `main`.
-2. Enable **Require a pull request before merging**.
-3. Enable **Do not allow bypassing the above settings** to include administrators.
-4. Keep **Allow force pushes** and **Allow deletions** disabled.
-5. After the checks above have run successfully, enable **Require status checks
-   to pass before merging**, select those exact three check names, and enable
-   **Require branches to be up to date before merging**.
+After the checks finish, a **Post results comment** job posts a summary table on
+the pull request, and updates that same comment on later pushes. For each failed
+check it includes the last 60 lines of error output and the command to reproduce
+it locally.
+
+If the repository secret `ANTHROPIC_API_KEY` is set, failed runs also send the
+error output and the PR's diff to Claude (`claude-opus-5-5`), and its suggested
+fixes are added to the comment. This only happens when a check fails, and each
+call costs a few cents. Without the secret, the comment still shows the errors.
+To set it (a separate key from the one in `.env` makes it easy to revoke or
+limit):
+
+```bash
+gh secret set ANTHROPIC_API_KEY
+```
+
+The comment job is skipped for PRs from forks, which can't read secrets or write
+comments. The logic lives in `.github/scripts/ci-report.mjs`.
+
+### Branch protection
+
+Branch protection is a repository setting, configured as a ruleset under
+**Settings > Rules > Rulesets** targeting `main`, with:
+
+- **Require a pull request before merging**
+- **Require status checks to pass**, listing the three check names above
+- **Require signed commits**
+- **Restrict deletions**
 
 Required human approvals are optional and should be left off by default for a
 solo maintainer: the owner cannot approve their own pull request.
