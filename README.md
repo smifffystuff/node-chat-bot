@@ -90,19 +90,21 @@ app/page.tsx            Chat UI (client component)
 app/api/chat/route.ts   POST /api/chat: calls Claude and streams the reply back
 lib/tools/              Tools Claude can call
   add.ts                add_numbers: example tool
-  red-led.ts            red_led: LED on GPIO 14 - on/off/status, or on for N seconds
+  led.ts                led: switch LEDs from config/leds.ts on/off, check them, or light them for N seconds
   wait.ts               wait: pause between steps (approximate timing)
   index.ts              List of tools passed to Claude
 lib/gpio.ts             readPin/writePin helpers (uses Raspberry Pi's pinctrl)
+config/leds.ts          LEDs wired to the Pi: name and GPIO number for each
 lib/types.ts            Types shared by the UI and the API route
 ```
 
-1. The page sends the conversation so far (text only) to `POST /api/chat`.
+1. The page sends the conversation so far to `POST /api/chat`, including Claude's earlier tool calls and their results, so Claude knows what it has actually done.
 2. The route uses the SDK's **tool runner** (`client.beta.messages.toolRunner`) with streaming on. The runner sends the request to Claude, runs any tool Claude asks for, sends the result back, and repeats until Claude gives a final answer.
 3. The route streams events back to the page as newline-delimited JSON, one object per line:
    - `{"type":"text","text":"..."}`: a piece of the reply
    - `{"type":"tool","name":"add_numbers","input":{...}}`: Claude called a tool
    - `{"type":"error","error":"..."}`: something went wrong
+   - `{"type":"history","messages":[...]}`: sent last, when the reply completed. This is the full conversation, which the page stores and sends back unchanged with the next message
 4. The page appends text to the reply bubble as it arrives and shows each tool call as a 🔧 badge.
 
 ### Model settings
@@ -112,6 +114,21 @@ Set in `app/api/chat/route.ts`:
 - **Model:** `claude-opus-5-5`, with `effort: "medium"`. For a cheaper, faster bot, switch to `claude-sonnet-5-5`.
 - **Refusal fallback:** `fallbacks: "default"` (beta `server-side-fallback-2026-07-01`). If a safety check declines a request, the API retries it on a fallback model.
 - **System prompt:** `SYSTEM_PROMPT` in the same file.
+
+## Adding an LED
+
+Wire the LED to a free GPIO pin (with a resistor), then add a line to `config/leds.ts`:
+
+```ts
+export const leds = [
+  { name: "red", gpio: 14 },
+  { name: "blue", gpio: 15 },
+  { name: "green", gpio: 23 },
+  { name: "yellow", gpio: 18, description: "on the front panel" },
+] as const satisfies readonly LedConfig[];
+```
+
+`name` is what you call it in chat ("turn the yellow LED on"); use lowercase with no spaces. `gpio` is the BCM GPIO number, not the physical pin number on the header. `description` is optional extra detail for Claude. `npm run dev` picks the change up automatically; for production, rebuild and restart (`npm run build && npm start`). Mistakes such as a duplicate name or two LEDs on the same GPIO are reported as soon as the app builds or starts, so the CI build check catches them too.
 
 ## Adding a tool
 
@@ -145,12 +162,11 @@ That's it. The tool runner handles the rest. Some tips:
 
 - **Descriptions:** Claude decides when to use a tool from its `description`, so say clearly what it does and what it returns.
 - **Input checking:** inputs are checked against the Zod schema before `run()` is called, so `run()` always gets correctly typed values.
-- **Hardware access:** `run()` runs on the server (the Pi), so it can use any Node library, such as an I2C package. For simple GPIO, use `readPin` / `writePin` from `lib/gpio.ts`, as `red-led.ts` does. They call Raspberry Pi's `pinctrl` tool, so the user running the app must be in the `gpio` group.
+- **Hardware access:** `run()` runs on the server (the Pi), so it can use any Node library, such as an I2C package. For simple GPIO, use `readPin` / `writePin` from `lib/gpio.ts`, as `led.ts` does. They call Raspberry Pi's `pinctrl` tool, so the user running the app must be in the `gpio` group.
 - **Errors:** to report a failure, throw an error inside `run()`. Claude gets the error message and can tell the user.
-- **Timing:** Claude makes one tool call per step (`disable_parallel_tool_use` in `route.ts`), so steps run in order. Time between steps includes Claude deciding what to do next, typically 1-3 seconds. If something must be timed precisely, such as "on for 1 second", do the timing inside a single `run()`, as `red_led`'s `duration_seconds` does.
+- **Timing:** Claude makes one tool call per step (`disable_parallel_tool_use` in `route.ts`), so steps run in order. Time between steps includes Claude deciding what to do next, typically 1-3 seconds. If something must be timed precisely, such as "on for 1 second", do the timing inside a single `run()`, as the `led` tool's `duration_seconds` does.
 
 ## Limitations
 
 - **No saved history:** the conversation lives only in the browser tab and is lost on reload.
-- **Text-only history:** earlier turns are sent back to Claude as text only. Earlier tool calls and their results aren't included.
 - **No authentication:** anyone on your network who can reach the Pi can use the bot, and your API credits. Don't expose it to the internet as-is.

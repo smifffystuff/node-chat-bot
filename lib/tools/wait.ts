@@ -9,9 +9,9 @@ export const wait = {
     name: "wait",
     description:
       "Pause for a number of seconds before doing the next thing, for sequences like " +
-      "'turn the LED on, wait 5 seconds, then turn it off'. Timing between steps is " +
+      "'turn the LED on, wait 5 seconds, then do something else'. Timing between steps is " +
       "approximate (it also includes the time taken to decide the next step), so when " +
-      "a tool has its own duration option, such as red_led's duration_seconds, use that " +
+      "a tool has its own duration option, such as the led tool's duration_seconds, use that " +
       "instead for precise timing.",
     inputSchema: z.object({
       seconds: z
