@@ -45,6 +45,10 @@ export async function POST(request: Request) {
         fallbacks: "default",
         system: SYSTEM_PROMPT,
         tools,
+        // One tool call per step, so actions like "on, wait, off" run in order.
+        // (The runner starts calls as they stream in, so several calls in one
+        // step would run at the same time.)
+        tool_choice: { type: "auto", disable_parallel_tool_use: true },
         messages,
         stream: true,
       });
