@@ -60,3 +60,72 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm run build
+
+  # Posts a summary of the checks above as a PR comment. The comment is
+  # updated in place on later pushes instead of adding a new one each time.
+  report:
+    name: Post results comment
+    needs: [lint, typecheck, build]
+    # Run even when a check failed; skip on pushes to main and on PRs from
+    # forks (their token can't write comments).
+    if: >-
+      always() &&
+      github.event_name == 'pull_request' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      pull-requests: write
+    steps:
+      - name: Create or update PR comment
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          LINT: ${{ needs.lint.result }}
+          TYPECHECK: ${{ needs.typecheck.result }}
+          BUILD: ${{ needs.build.result }}
+        run: |
+          status() {
+            case "$1" in
+              success)   echo "✅ Passed" ;;
+              failure)   echo "❌ Failed" ;;
+              cancelled) echo "⚪ Cancelled" ;;
+              skipped)   echo "⏭️ Skipped" ;;
+              *)         echo "❔ $1" ;;
+            esac
+          }
+
+          if [ "$LINT" = success ] && [ "$TYPECHECK" = success ] && [ "$BUILD" = success ]; then
+            summary="✅ **All checks passed**"
+          else
+            summary="❌ **Some checks did not pass** - see the [workflow run]($RUN_URL) for details."
+          fi
+
+          marker="<!-- ci-results-comment -->"
+          body="$marker
+          ## CI results
+
+          $summary
+
+          | Check | Result |
+          | --- | --- |
+          | Lint | $(status "$LINT") |
+          | Typecheck | $(status "$TYPECHECK") |
+          | Build | $(status "$BUILD") |
+
+          Commit: \`${HEAD_SHA:0:7}\` · [Workflow run]($RUN_URL)"
+
+          comment_id=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
+            --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id" \
+            | tail -n 1)
+
+          if [ -n "$comment_id" ]; then
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$comment_id" -f body="$body" > /dev/null
+            echo "Updated comment $comment_id"
+          else
+            gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
+            echo "Created comment"
+          fi
