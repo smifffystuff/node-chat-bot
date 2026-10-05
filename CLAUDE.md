@@ -21,7 +21,7 @@
    - `gh pr checks <number> --watch` until the run finishes.
    - Then read the bot's results comment: `gh api repos/smifffystuff/node-chat-bot/issues/<number>/comments --jq '.[] | select(.user.login == "github-actions[bot]") | .body'`. For failed checks it includes error output and suggested fixes.
    - If anything failed, fix it, push again, and re-check. Don't report the work as done while checks are failing.
-8. **Don't merge the PR yourself** unless the user asks. Report the PR link and the check results, and let the user review and merge.
-9. **After the user merges:** `git switch main && git pull --ff-only`, then delete the branch locally (`git branch -d <branch>`) and on GitHub (`git push origin --delete <branch>`) if GitHub didn't already.
+8. **Once all checks pass, ask the user to confirm they're happy for the PR to be merged.** Give them the PR link and the check results. Don't merge before they confirm, and never merge while checks are failing.
+9. **When the user confirms, merge it yourself** with `gh pr merge <number> --merge --delete-branch`, matching the repo's existing merge commits. GitHub signs the merge commit, so it satisfies the signed-commits rule. Then sync: `git switch main && git pull --ff-only`, delete the local branch (`git branch -d <branch>`) if it's still there, and `git fetch --prune`.
 
 Test PRs and temporary commits used to try out CI must be clearly labelled, never merged, and cleaned up afterwards: close the PR and delete the branch. Force-pushing is fine on your own feature branches to drop temporary commits, but never on `main`.
