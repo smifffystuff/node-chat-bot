@@ -90,7 +90,8 @@ app/page.tsx            Chat UI (client component)
 app/api/chat/route.ts   POST /api/chat: calls Claude and streams the reply back
 lib/tools/              Tools Claude can call
   add.ts                add_numbers: example tool
-  red-led.ts            red_led: switch the LED on GPIO 14 on/off, or check it
+  red-led.ts            red_led: LED on GPIO 14 - on/off/status, or on for N seconds
+  wait.ts               wait: pause between steps (approximate timing)
   index.ts              List of tools passed to Claude
 lib/gpio.ts             readPin/writePin helpers (uses Raspberry Pi's pinctrl)
 lib/types.ts            Types shared by the UI and the API route
@@ -146,6 +147,7 @@ That's it. The tool runner handles the rest. Some tips:
 - **Input checking:** inputs are checked against the Zod schema before `run()` is called, so `run()` always gets correctly typed values.
 - **Hardware access:** `run()` runs on the server (the Pi), so it can use any Node library, such as an I2C package. For simple GPIO, use `readPin` / `writePin` from `lib/gpio.ts`, as `red-led.ts` does. They call Raspberry Pi's `pinctrl` tool, so the user running the app must be in the `gpio` group.
 - **Errors:** to report a failure, throw an error inside `run()`. Claude gets the error message and can tell the user.
+- **Timing:** Claude makes one tool call per step (`disable_parallel_tool_use` in `route.ts`), so steps run in order. Time between steps includes Claude deciding what to do next, typically 1-3 seconds. If something must be timed precisely, such as "on for 1 second", do the timing inside a single `run()`, as `red_led`'s `duration_seconds` does.
 
 ## Limitations
 
