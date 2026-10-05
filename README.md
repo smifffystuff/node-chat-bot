@@ -131,3 +131,5 @@ That's it. The tool runner handles the rest. Some tips:
 - **No saved history:** the conversation lives only in the browser tab and is lost on reload.
 - **Text-only history:** earlier turns are sent back to Claude as text only. Earlier tool calls and their results aren't included.
 - **No authentication:** anyone on your network who can reach the Pi can use the bot, and your API credits. Don't expose it to the internet as-is.
+
+<!-- Signing test: unsigned commit. Should be blocked. -->
