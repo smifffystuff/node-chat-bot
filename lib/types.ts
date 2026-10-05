@@ -6,3 +6,6 @@ export type ChatEvent =
   | { type: "text"; text: string }
   | { type: "tool"; name: string; input: unknown }
   | { type: "error"; error: string };
+
+// CI test: deliberate type error - this PR should fail typecheck and build.
+export const ciTest: number = "not a number";
