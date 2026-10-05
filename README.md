@@ -36,6 +36,34 @@ From a phone or another computer, open **http://raspberrypi5.local:3000**.
 - **Dev mode from other devices:** Next.js blocks dev-server requests from hosts it doesn't recognise, which leaves the page loaded but not interactive (for example, the Send button never enables). `next.config.ts` allows `192.168.*.*` and `raspberrypi5.local` through `allowedDevOrigins`. If you use a different hostname or network range, add it there. Production mode doesn't have this check.
 - **Stopping `npm start`:** on Ctrl+C, production mode waits for open connections to close before it exits, so an open browser tab (often a phone) can keep it running. Close the tab, or press **Ctrl+\\** to force it to quit.
 
+## Pull request checks and branch protection
+
+GitHub Actions runs these checks on every pull request targeting `main`, pushes to
+`main`, and manual workflow runs, using Node.js 22 LTS and `npm ci`:
+
+- `node-chat-bot / lint` — `npm run lint`
+- `node-chat-bot / typecheck` — `npx next typegen`, then `npx tsc --noEmit`
+- `node-chat-bot / build` — `npm run build`
+
+Type generation supplies Next.js route helpers such as `LayoutProps` on a clean
+checkout. There is no test script yet. CI does not call the Anthropic API and
+needs no API key or repository secrets. The build downloads Google Fonts, so it
+needs network access to Google Fonts. These are CI checks, not AI code review.
+
+**Branch protection is not enabled by this workflow; repository settings remain
+manual.** To prevent direct pushes (including by administrators):
+
+1. Go to **Settings > Branches > Add branch protection rule** and target `main`.
+2. Enable **Require a pull request before merging**.
+3. Enable **Do not allow bypassing the above settings** to include administrators.
+4. Keep **Allow force pushes** and **Allow deletions** disabled.
+5. After the checks above have run successfully, enable **Require status checks
+   to pass before merging**, select those exact three check names, and enable
+   **Require branches to be up to date before merging**.
+
+Required human approvals are optional and should be left off by default for a
+solo maintainer: the owner cannot approve their own pull request.
+
 ## How it works
 
 ```
