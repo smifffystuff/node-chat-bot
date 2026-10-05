@@ -10,6 +10,13 @@ on:
 permissions:
   contents: read
 
+# An explicit `bash` shell runs steps with `-eo pipefail`, so a failing
+# command piped into `tee` still fails the step. The implicit default
+# (`bash -e`) would report the `tee` exit code and hide the failure.
+defaults:
+  run:
+    shell: bash
+
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
