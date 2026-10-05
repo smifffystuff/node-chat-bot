@@ -1,12 +1,16 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import type { ChatEvent, ChatMessage, ToolCall } from "@/lib/types";
+import type { ApiMessage, ChatEvent, ChatMessage, ToolCall } from "@/lib/types";
 
 type DisplayMessage = ChatMessage & { toolCalls?: ToolCall[]; error?: boolean };
 
 export default function Home() {
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  // What Claude sees: the full conversation including tool calls, as returned
+  // by the server after each completed reply. Kept separate from the
+  // displayed messages and sent back unchanged.
+  const [apiHistory, setApiHistory] = useState<ApiMessage[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const bottomRef = useRef<HTMLDivElement>(null);
@@ -37,12 +41,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        // Only send successful turns, as plain role/content pairs.
-        body: JSON.stringify({
-          messages: history
-            .filter((m) => !m.error && m.content)
-            .map(({ role, content }) => ({ role, content })),
-        }),
+        body: JSON.stringify({ messages: [...apiHistory, { role: "user", content: text }] }),
       });
       if (!res.ok || !res.body) throw new Error(`Request failed (${res.status})`);
 
@@ -62,6 +61,8 @@ export default function Home() {
             update({ content: reply.content + event.text });
           } else if (event.type === "tool") {
             update({ toolCalls: [...reply.toolCalls!, { name: event.name, input: event.input }] });
+          } else if (event.type === "history") {
+            setApiHistory(event.messages);
           } else {
             throw new Error(event.error);
           }

@@ -1,6 +1,6 @@
 import Anthropic from "@anthropic-ai/sdk";
 import { tools } from "@/lib/tools";
-import type { ChatEvent, ChatMessage } from "@/lib/types";
+import type { ApiMessage, ChatEvent } from "@/lib/types";
 
 // Reads ANTHROPIC_API_KEY from .env (Next.js loads it automatically).
 const client = new Anthropic();
@@ -25,7 +25,9 @@ function errorMessage(error: unknown): string {
 }
 
 export async function POST(request: Request) {
-  const { messages } = (await request.json()) as { messages: ChatMessage[] };
+  // The full conversation (including earlier tool calls and results), as
+  // returned in the previous reply's "history" event, plus the new message.
+  const { messages } = (await request.json()) as { messages: ApiMessage[] };
   const encoder = new TextEncoder();
 
   const body = new ReadableStream({
@@ -53,6 +55,10 @@ export async function POST(request: Request) {
         stream: true,
       });
 
+      // False if the reply was cut short (refusal, truncated tool call); the
+      // page then keeps its previous history instead of this partial one.
+      let completed = true;
+
       try {
         for (let attempt = 0; ; attempt++) {
           try {
@@ -74,12 +80,14 @@ export async function POST(request: Request) {
 
               if (message.stop_reason === "refusal") {
                 send({ type: "text", text: "\n\nSorry, I can't help with that." });
+                completed = false;
                 break;
               }
               // A tool input cut off at max_tokens can still pass validation,
               // so stop before the runner executes it.
               if (message.stop_reason === "max_tokens" && toolUses.length > 0) {
                 send({ type: "error", error: "Response was cut off mid tool call" });
+                completed = false;
                 break;
               }
               // The runner runs these tools when the loop asks for the next turn.
@@ -94,6 +102,9 @@ export async function POST(request: Request) {
             runner = client.beta.messages.toolRunner({ ...runner.params });
           }
         }
+        // The runner has appended every assistant turn and tool result to its
+        // messages, so this is the complete conversation, exactly as sent.
+        if (completed) send({ type: "history", messages: runner.params.messages });
       } catch (err) {
         send({ type: "error", error: errorMessage(err) });
       } finally {
