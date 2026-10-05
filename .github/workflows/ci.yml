@@ -15,10 +15,13 @@ concurrency:
   cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
+  # Each check saves the tail of its output when it fails, for the report job.
   lint:
     name: node-chat-bot / lint
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      log: ${{ steps.failure.outputs.log }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -28,12 +31,21 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run lint
+      - name: Run lint
+        id: check
+        run: |
+          npm run lint 2>&1 | tee check-output.log
+      - name: Save failure output
+        id: failure
+        if: failure() && steps.check.outcome == 'failure'
+        run: bash .github/scripts/save-failure-output.sh
 
   typecheck:
     name: node-chat-bot / typecheck
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    outputs:
+      log: ${{ steps.failure.outputs.log }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -43,13 +55,22 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npx next typegen
-      - run: npx tsc --noEmit
+      - name: Run typecheck
+        id: check
+        run: |
+          npx next typegen 2>&1 | tee check-output.log
+          npx tsc --noEmit 2>&1 | tee -a check-output.log
+      - name: Save failure output
+        id: failure
+        if: failure() && steps.check.outcome == 'failure'
+        run: bash .github/scripts/save-failure-output.sh
 
   build:
     name: node-chat-bot / build
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    outputs:
+      log: ${{ steps.failure.outputs.log }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -59,73 +80,75 @@ jobs:
           node-version: '22'
           cache: npm
       - run: npm ci
-      - run: npm run build
+      - name: Run build
+        id: check
+        run: |
+          npm run build 2>&1 | tee check-output.log
+      - name: Save failure output
+        id: failure
+        if: failure() && steps.check.outcome == 'failure'
+        run: bash .github/scripts/save-failure-output.sh
 
-  # Posts a summary of the checks above as a PR comment. The comment is
-  # updated in place on later pushes instead of adding a new one each time.
+  # Posts a summary of the checks above as a PR comment, including error
+  # output for failed checks and (if the ANTHROPIC_API_KEY secret is set)
+  # suggested fixes from Claude. The comment is updated in place on later
+  # pushes instead of adding a new one each time.
   report:
     name: Post results comment
     needs: [lint, typecheck, build]
     # Run even when a check failed; skip on pushes to main and on PRs from
-    # forks (their token can't write comments).
+    # forks (their token can't write comments or read secrets).
     if: >-
       always() &&
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
     runs-on: ubuntu-latest
-    timeout-minutes: 5
+    timeout-minutes: 10
     permissions:
+      contents: read
       pull-requests: write
+    env:
+      GH_TOKEN: ${{ github.token }}
+      GH_REPO: ${{ github.repository }}
+      PR_NUMBER: ${{ github.event.pull_request.number }}
+      WANT_SUGGESTIONS: ${{ contains(needs.*.result, 'failure') && secrets.ANTHROPIC_API_KEY != '' }}
     steps:
-      - name: Create or update PR comment
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: '22'
+          cache: npm
+      - name: Install dependencies for fix suggestions
+        if: env.WANT_SUGGESTIONS == 'true'
+        run: npm ci
+      - name: Get PR diff
+        if: env.WANT_SUGGESTIONS == 'true'
+        run: gh pr diff "$PR_NUMBER" > pr.diff || true
+      - name: Build comment
         env:
-          GH_TOKEN: ${{ github.token }}
-          GH_REPO: ${{ github.repository }}
-          PR_NUMBER: ${{ github.event.pull_request.number }}
+          ANTHROPIC_API_KEY: ${{ env.WANT_SUGGESTIONS == 'true' && secrets.ANTHROPIC_API_KEY || '' }}
           HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-          LINT: ${{ needs.lint.result }}
-          TYPECHECK: ${{ needs.typecheck.result }}
-          BUILD: ${{ needs.build.result }}
+          LINT_RESULT: ${{ needs.lint.result }}
+          LINT_LOG: ${{ needs.lint.outputs.log }}
+          TYPECHECK_RESULT: ${{ needs.typecheck.result }}
+          TYPECHECK_LOG: ${{ needs.typecheck.outputs.log }}
+          BUILD_RESULT: ${{ needs.build.result }}
+          BUILD_LOG: ${{ needs.build.outputs.log }}
+        run: node .github/scripts/ci-report.mjs > comment.md
+      - name: Create or update PR comment
         run: |
-          status() {
-            case "$1" in
-              success)   echo "✅ Passed" ;;
-              failure)   echo "❌ Failed" ;;
-              cancelled) echo "⚪ Cancelled" ;;
-              skipped)   echo "⏭️ Skipped" ;;
-              *)         echo "❔ $1" ;;
-            esac
-          }
-
-          if [ "$LINT" = success ] && [ "$TYPECHECK" = success ] && [ "$BUILD" = success ]; then
-            summary="✅ **All checks passed**"
-          else
-            summary="❌ **Some checks did not pass** - see the [workflow run]($RUN_URL) for details."
-          fi
-
           marker="<!-- ci-results-comment -->"
-          body="$marker
-          ## CI results
-
-          $summary
-
-          | Check | Result |
-          | --- | --- |
-          | Lint | $(status "$LINT") |
-          | Typecheck | $(status "$TYPECHECK") |
-          | Build | $(status "$BUILD") |
-
-          Commit: \`${HEAD_SHA:0:7}\` · [Workflow run]($RUN_URL)"
-
           comment_id=$(gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" --paginate \
             --jq ".[] | select(.user.login == \"github-actions[bot]\" and (.body | contains(\"$marker\"))) | .id" \
             | tail -n 1)
 
           if [ -n "$comment_id" ]; then
-            gh api -X PATCH "repos/$GH_REPO/issues/comments/$comment_id" -f body="$body" > /dev/null
+            gh api -X PATCH "repos/$GH_REPO/issues/comments/$comment_id" -F body=@comment.md > /dev/null
             echo "Updated comment $comment_id"
           else
-            gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" -f body="$body" > /dev/null
+            gh api "repos/$GH_REPO/issues/$PR_NUMBER/comments" -F body=@comment.md > /dev/null
             echo "Created comment"
           fi
