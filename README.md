@@ -90,7 +90,9 @@ app/page.tsx            Chat UI (client component)
 app/api/chat/route.ts   POST /api/chat: calls Claude and streams the reply back
 lib/tools/              Tools Claude can call
   add.ts                add_numbers: example tool
+  red-led.ts            red_led: switch the LED on GPIO 14 on/off, or check it
   index.ts              List of tools passed to Claude
+lib/gpio.ts             readPin/writePin helpers (uses Raspberry Pi's pinctrl)
 lib/types.ts            Types shared by the UI and the API route
 ```
 
@@ -142,7 +144,7 @@ That's it. The tool runner handles the rest. Some tips:
 
 - **Descriptions:** Claude decides when to use a tool from its `description`, so say clearly what it does and what it returns.
 - **Input checking:** inputs are checked against the Zod schema before `run()` is called, so `run()` always gets correctly typed values.
-- **Hardware access:** `run()` runs on the server (the Pi), so it can use any Node library, such as a GPIO or I2C package.
+- **Hardware access:** `run()` runs on the server (the Pi), so it can use any Node library, such as an I2C package. For simple GPIO, use `readPin` / `writePin` from `lib/gpio.ts`, as `red-led.ts` does. They call Raspberry Pi's `pinctrl` tool, so the user running the app must be in the `gpio` group.
 - **Errors:** to report a failure, throw an error inside `run()`. Claude gets the error message and can tell the user.
 
 ## Limitations
