@@ -91,10 +91,14 @@ app/api/chat/route.ts   POST /api/chat: calls Claude and streams the reply back
 lib/tools/              Tools Claude can call
   add.ts                add_numbers: example tool
   led.ts                led: switch LEDs from config/leds.ts on/off, check them, or light them for N seconds
+  environment.ts        read_environment: temperature, pressure (and humidity) from the HW-611 sensor
   wait.ts               wait: pause between steps (approximate timing)
   index.ts              List of tools passed to Claude
 lib/gpio.ts             readPin/writePin helpers (uses Raspberry Pi's pinctrl)
+lib/i2c.ts              readRegisters/writeRegister helpers (uses i2ctransfer)
+lib/bmp280.ts           BMP280/BME280 driver used by read_environment
 config/leds.ts          LEDs wired to the Pi: name and GPIO number for each
+config/sensor.ts        HW-611 sensor: I2C bus, address and wiring
 lib/types.ts            Types shared by the UI and the API route
 ```
 
@@ -129,6 +133,28 @@ export const leds = [
 ```
 
 `name` is what you call it in chat ("turn the yellow LED on"); use lowercase with no spaces. `gpio` is the BCM GPIO number, not the physical pin number on the header. `description` is optional extra detail for Claude. `npm run dev` picks the change up automatically; for production, rebuild and restart (`npm run build && npm start`). Mistakes such as a duplicate name or two LEDs on the same GPIO are reported as soon as the app builds or starts, so the CI build check catches them too.
+
+## HW-611 environment sensor
+
+The HW-611 is a small BMP280 board (temperature and air pressure). Some boards sold as HW-611 carry a BME280, which also measures humidity; the driver detects which one you have. Wire it to the Pi's I2C pins:
+
+| HW-611 | Pi header |
+| --- | --- |
+| VCC | 3.3V (pin 1). Not 5V |
+| GND | GND (pin 6) |
+| SCL | GPIO 3 / SCL (pin 5) |
+| SDA | GPIO 2 / SDA (pin 3) |
+| CSB | 3.3V (pin 17). Selects I2C; if left floating the chip may start in SPI mode and never answer |
+| SDO | GND (pin 9). Sets address 0x76 (3.3V gives 0x77); floating leaves it undefined |
+
+Then enable I2C once and reboot:
+
+```bash
+sudo raspi-config nonint do_i2c 0
+sudo reboot
+```
+
+Check it's visible with `i2cdetect -y 1`; it shows up at `76` (or `77` if SDO is tied to 3.3V). If nothing shows up, power-cycle the sensor after fixing the wiring: the chip only checks CSB when it powers up. The user running the app must be in the `i2c` group. Settings live in `config/sensor.ts`. Ask the bot "what's the temperature?" to try it.
 
 ## Adding a tool
 

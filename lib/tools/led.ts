@@ -18,6 +18,9 @@ function validateConfig(config: readonly LedConfig[]) {
     if (!Number.isInteger(gpio) || gpio < 0 || gpio > 27) {
       throw new Error(`config/leds.ts: LED "${name}" has invalid GPIO ${gpio} (expected 0-27)`);
     }
+    if (gpio === 2 || gpio === 3) {
+      throw new Error(`config/leds.ts: LED "${name}" uses GPIO ${gpio}, which is reserved for I2C (the HW-611 sensor)`);
+    }
     if (names.has(name)) throw new Error(`config/leds.ts: duplicate LED name "${name}"`);
     if (pins.has(gpio)) throw new Error(`config/leds.ts: GPIO ${gpio} is used by more than one LED`);
     names.add(name);
