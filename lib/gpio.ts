@@ -17,6 +17,11 @@ export async function writePin(gpio: number, high: boolean): Promise<void> {
   await pinctrl("set", String(gpio), "op", high ? "dh" : "dl");
 }
 
+/** Hand a pin to a peripheral, e.g. "a3" for alt function 3, or "no" to release it. */
+export async function setPinFunction(gpio: number, fn: string): Promise<void> {
+  await pinctrl("set", String(gpio), fn);
+}
+
 /** Read a pin's current level: true for high, false for low. */
 export async function readPin(gpio: number): Promise<boolean> {
   // Output looks like: "14: op dh pd | hi // GPIO14 = output"
