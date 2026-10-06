@@ -91,10 +91,13 @@ app/api/chat/route.ts   POST /api/chat: calls Claude and streams the reply back
 lib/tools/              Tools Claude can call
   add.ts                add_numbers: example tool
   led.ts                led: switch LEDs from config/leds.ts on/off, check them, or light them for N seconds
+  servo.ts              servo: turn servos from config/servos.ts to an angle or by N degrees left/right
   wait.ts               wait: pause between steps (approximate timing)
   index.ts              List of tools passed to Claude
 lib/gpio.ts             readPin/writePin helpers (uses Raspberry Pi's pinctrl)
+lib/pwm.ts              Hardware PWM helpers (kernel sysfs interface), used for servos
 config/leds.ts          LEDs wired to the Pi: name and GPIO number for each
+config/servos.ts        Servos wired to the Pi: GPIO, pulse range and angle range for each
 lib/types.ts            Types shared by the UI and the API route
 ```
 
@@ -129,6 +132,27 @@ export const leds = [
 ```
 
 `name` is what you call it in chat ("turn the yellow LED on"); use lowercase with no spaces. `gpio` is the BCM GPIO number, not the physical pin number on the header. `description` is optional extra detail for Claude. `npm run dev` picks the change up automatically; for production, rebuild and restart (`npm run build && npm start`). Mistakes such as a duplicate name or two LEDs on the same GPIO are reported as soon as the app builds or starts, so the CI build check catches them too.
+
+## Wiring a servo
+
+A hobby servo (SG90, MG90S and similar) has three wires:
+
+| Wire | Connect to |
+| --- | --- |
+| Orange (or yellow/white): signal | GPIO 18 (physical pin 12) |
+| Red: power | 5V (physical pin 2 or 4) |
+| Brown (or black): ground | GND (physical pin 6, or any GND pin) |
+
+The signal pin must be a hardware PWM pin: GPIO 12, 13, 18 or 19. Software PWM makes servos jitter. These pins use the Pi 5's PWM0 controller, which is off by default, so turn it on once and reboot:
+
+```bash
+echo "dtoverlay=pwm,pin=18,func=2" | sudo tee -a /boot/firmware/config.txt
+sudo reboot
+```
+
+The overlay enables PWM0 for all four pins; the app switches whichever pin it uses to PWM itself. A small servo like an SG90 can run from the Pi's 5V pin. For anything bigger, or several servos, use a separate 5V supply and connect its ground to the Pi's ground, otherwise current spikes can reset the Pi.
+
+The servo is set up in `config/servos.ts`. You can then say things like "turn to 45 degrees", "rotate 30 degrees to the left", "centre the servo" or "where is the servo pointing?". 0 degrees is fully right and 180 is fully left. If "left" turns it the wrong way, set `reversed: true`. If it buzzes or strains at either end, move `minPulseUs` and `maxPulseUs` inwards (for example 600 and 2400). A servo holds its position, and may hum, until you ask Claude to release it.
 
 ## Adding a tool
 
